@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tournament Tracker</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide-react/0.263.1/lucide-react.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; padding: 0; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { Trophy, Users, User, Plus, Award, BarChart3 } = lucide;
+
+        const TournamentTracker = () => {
+            const [players, setPlayers] = useState(['Player 1', 'Player 2', 'Player 3', 'Player 4']);
+            const [editingPlayers, setEditingPlayers] = useState(false);
+            const [events, setEvents] = useState([]);
+            const [currentEvent, setCurrentEvent] = useState({
+                name: '',
+                type: 'solo',
+                tier: 1
+            });
+            const [showEventForm, setShowEventForm] = useState(false);
+
+            // Load data from localStorage on component mount
+            useEffect(() => {
+                try {
+                    const savedPlayers = localStorage.getItem('tournament-players');
+                    const savedEvents = localStorage.getItem('tournament-events');
+                    
+                    if (savedPlayers) {
+                        setPlayers(JSON.parse(savedPlayers));
+                    }
+                    
+                    if (savedEvents) {
+                        setEvents(JSON.parse(savedEvents));
+                    }
+                } catch (error) {
+                    console.log('Error loading saved data:', error);
+                }
+            }, []);
+
+            // Save players to localStorage whenever players change
+            useEffect(() => {
+                try {
+                    localStorage.setItem('tournament-players', JSON.stringify(players));
+                } catch (error) {
+                    console.log('Error saving players:', error);
+                }
+            }, [players]);
+
+            // Save events to localStorage whenever events change
+            useEffect(() => {
+                try {
+                    localStorage.setItem('tournament-events', JSON.stringify(events));
+                } catch (error) {
+                    console.log('Error saving events:', error);
+                }
+            }, [events]);
+
+            const pointDistributions = {
+                solo: {
+                    1: [12, 9, 7, 5],
+                    2: [7, 5, 4, 3],
+                    3: [4, 3, 2, 1]
+                },
+                team: {
+                    1: [12, 9],
+                    2: [6, 4],
+                    3: [4, 2]
+                }
+            };
+
+            const updatePlayerName = (index, name) => {
+                const updatedPlayers = [...players];
+                updatedPlayers[index] = name;
+                setPlayers(updatedPlayers);
+            };
+
+            const addEvent = () => {
+                if (currentEvent.name.trim()) {
+                    const newEvent = {
+                        id: Date.now(),
+                        name: currentEvent.name,
+                        type: currentEvent.type,
+                        tier: currentEvent.tier,
+                        results: currentEvent.type === 'solo' ? 
+                            Array(4).fill(null) : 
+                            Array(2).fill(null).map(() => ({ team: [] })),
+                        completed: false
+                    };
+                    setEvents([...events, newEvent]);
+                    setCurrentEvent({ name: '', type: 'solo', tier: 1 });
+                    setShowEventForm(false);
+                }
+            };
+
+            const updateEventResult = (eventId, position, value) => {
+                setEvents(events.map(event => {
+                    if (event.id === eventId) {
+                        const updatedResults = [...event.results];
+                        if (event.type === 'solo') {
+                            updatedResults[position] = value;
+                        } else {
+                            updatedResults[position] = { team: value || [] };
+                        }
+                        return { 
+                            ...event, 
+                            results: updatedResults,
+                            completed: event.type === 'solo' ? 
+                                updatedResults.every(r => r !== null) :
+                                updatedResults.every(r => r.team.length === 2)
+                        };
+                    }
+                    return event;
+                }));
+            };
+
+            const calculatePlayerScores = () => {
+                const scores = {};
+                players.forEach(player => scores[player] = 0);
+
+                events.forEach(event => {
+                    if (event.completed) {
+                        const points = pointDistributions[event.type][event.tier];
+                        
+                        if (event.type === 'solo') {
+                            event.results.forEach((player, index) => {
+                                if (player && scores[player] !== undefined) {
+                                    scores[player] += points[index];
+                                }
+                            });
+                        } else {
+                            event.results.forEach((result, index) => {
+                                result.team.forEach(player => {
+                                    if (scores[player] !== undefined) {
+                                        scores[player] += points[index];
+                                    }
+                                });
+                            });
+                        }
+                    }
+                });
+
+                return Object.entries(scores).sort((a, b) => b[1] - a[1]);
+            };
+
+            const getEventTypeCounts = () => {
+                const counts = {
+                    solo: { 1: 0, 2: 0, 3: 0 },
+                    team: { 1: 0, 2: 0, 3: 0 }
+                };
+                
+                events.forEach(event => {
+                    counts[event.type][event.tier]++;
+                });
+                
+                return counts;
+            };
+
+            const clearAllData = () => {
+                if (confirm('Are you sure you want to reset the entire tournament? This cannot be undone.')) {
+                    localStorage.removeItem('tournament-players');
+                    localStorage.removeItem('tournament-events');
+                    setPlayers(['Player 1', 'Player 2', 'Player 3', 'Player 4']);
+                    setEvents([]);
+                    setEditingPlayers(false);
+                    setShowEventForm(false);
+                }
+            };
+
+            const eventCounts = getEventTypeCounts();
+            const playerScores = calculatePlayerScores();
+            const completedEvents = events.filter(e => e.completed).length;
+
+            return (
+                <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
+                    {/* Current Standings */}
+                    <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                <BarChart3 className="text-purple-500" size={24} />
+                                Current Standings
+                            </h2>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setEditingPlayers(!editingPlayers)}
+                                    className="px-3 py-1 text-sm bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
+                                >
+                                    {editingPlayers ? 'Done' : 'Edit Names'}
+                                </button>
+                                <button
+                                    onClick={clearAllData}
+                                    className="px-3 py-1 text-sm bg-red-200 hover:bg-red-300 text-red-800 rounded-lg transition-colors"
+                                >
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                        <div className="space-y-3">
+                            {editingPlayers ? (
+                                players.map((player, index) => (
+                                    <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
+                                            index === 0 ? 'bg-yellow-500' : 
+                                            index === 1 ? 'bg-gray-400' : 
+                                            index === 2 ? 'bg-amber-600' : 'bg-gray-300'
+                                        }`}>
+                                            {index + 1}
+                                        </div>
+                                        <input
+                                            type="text"
+                                            value={player}
+                                            onChange={(e) => updatePlayerName(index, e.target.value)}
+                                            className="flex-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                            placeholder={`Player ${index + 1}`}
+                                        />
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {playerScores.map(([player, score], index) => (
+                                        <div key={player} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
+                                                    index === 0 ? 'bg-yellow-500' : 
+                                                    index === 1 ? 'bg-gray-400' : 
+                                                    index === 2 ? 'bg-amber-600' : 'bg-gray-300'
+                                                }`}>
+                                                    {index + 1}
+                                                </div>
+                                                <span className="font-medium">{player}</span>
+                                            </div>
+                                            <span className="text-lg font-bold text-blue-600">{score}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Tournament Tracker Panel */}
+                    <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-3">
+                                <Trophy className="text-yellow-500" size={32} />
+                                <h1 className="text-3xl font-bold text-gray-800">Tournament Tracker</h1>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-sm text-gray-600">Events Completed</p>
+                                <p className="text-2xl font-bold text-blue-600">{completedEvents}/10</p>
+                            </div>
+                        </div>
+
+                        {/* Event Structure Summary */}
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                            <div className="bg-blue-50 p-4 rounded-lg">
+                                <h3 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                                    <User size={20} />
+                                    Solo Events (5)
+                                </h3>
+                                <div className="space-y-1 text-sm">
+                                    <p>Tier 1: {eventCounts.solo[1]}/1 • Tier 2: {eventCounts.solo[2]}/2 • Tier 3: {eventCounts.solo[3]}/2</p>
+                                </div>
+                            </div>
+                            <div className="bg-green-50 p-4 rounded-lg">
+                                <h3 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
+                                    <Users size={20} />
+                                    Team Events (5)
+                                </h3>
+                                <div className="space-y-1 text-sm">
+                                    <p>Tier 1: {eventCounts.team[1]}/1 • Tier 2: {eventCounts.team[2]}/2 • Tier 3: {eventCounts.team[3]}/2</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Point Reference */}
+                        <div className="bg-white rounded-lg shadow-lg p-6">
+                            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                                <Award className="text-orange-500" size={24} />
+                                Point Reference
+                            </h2>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <h3 className="font-semibold text-blue-600 mb-2">Solo Events</h3>
+                                    <div className="text-sm space-y-1">
+                                        <p><strong>Tier 1:</strong> 12, 9, 7, 5</p>
+                                        <p><strong>Tier 2:</strong> 7, 5, 4, 3</p>
+                                        <p><strong>Tier 3:</strong> 4, 3, 2, 1</p>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <h3 className="font-semibold text-green-600 mb-2">Team Events</h3>
+                                    <div className="text-sm space-y-1">
+                                        <p><strong>Tier 1:</strong> 12, 9 (per player)</p>
+                                        <p><strong>Tier 2:</strong> 6, 4 (per player)</p>
+                                        <p><strong>Tier 3:</strong> 4, 2 (per player)</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Add Event */}
+                        <div className="bg-white rounded-lg shadow-lg p-6">
+                            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                                <Plus className="text-green-500" size={24} />
+                                Add Event
+                            </h2>
+                            
+                            {!showEventForm ? (
+                                <button
+                                    onClick={() => setShowEventForm(true)}
+                                    className="w-full py-3 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
+                                >
+                                    Create New Event
+                                </button>
+                            ) : (
+                                <div className="space-y-4">
+                                    <input
+                                        type="text"
+                                        placeholder="Event Name"
+                                        value={currentEvent.name}
+                                        onChange={(e) => setCurrentEvent({ ...currentEvent, name: e.target.value })}
+                                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                    
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <select
+                                            value={currentEvent.type}
+                                            onChange={(e) => setCurrentEvent({ ...currentEvent, type: e.target.value })}
+                                            className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value="solo">Solo</option>
+                                            <option value="team">Team</option>
+                                        </select>
+                                        
+                                        <select
+                                            value={currentEvent.tier}
+                                            onChange={(e) => setCurrentEvent({ ...currentEvent, tier: parseInt(e.target.value) })}
+                                            className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            <option value={1}>Tier 1</option>
+                                            <option value={2}>Tier 2</option>
+                                            <option value={3}>Tier 3</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={addEvent}
+                                            className="flex-1 py-2 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                                        >
+                                            Add
+                                        </button>
+                                        <button
+                                            onClick={() => setShowEventForm(false)}
+                                            className="flex-1 py-2 px-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Empty third column for spacing */}
+                        <div></div>
+                    </div>
+
+                    {/* Events List */}
+                    <div className="mt-6 bg-white rounded-lg shadow-lg p-6">
+                        <h2 className="text-xl font-bold mb-4">Events</h2>
+                        
+                        {events.length === 0 ? (
+                            <p className="text-gray-500 text-center py-8">No events created yet. Add your first event above!</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {events.map(event => (
+                                    <div key={event.id} className="border border-gray-200 rounded-lg p-4">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                <h3 className="font-semibold text-lg">{event.name}</h3>
+                                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                                    event.type === 'solo' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+                                                }`}>
+                                                    {event.type === 'solo' ? 'Solo' : 'Team'} - Tier {event.tier}
+                                                </span>
+                                                {event.completed && (
+                                                    <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                                                        Completed
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            {event.type === 'solo' ? (
+                                                ['1st', '2nd', '3rd', '4th'].map((position, index) => (
+                                                    <div key={position} className="space-y-2">
+                                                        <label className="block text-sm font-medium text-gray-700">
+                                                            {position} Place ({pointDistributions.solo[event.tier][index]} pts)
+                                                        </label>
+                                                        <select
+                                                            value={event.results[index] || ''}
+                                                            onChange={(e) => updateEventResult(event.id, index, e.target.value || null)}
+                                                            className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                                                        >
+                                                            <option value="">Select Player</option>
+                                                            {players.map(player => (
+                                                                <option key={player} value={player}>{player}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                ['1st', '2nd'].map((position, index) => (
+                                                    <div key={position} className="space-y-2">
+                                                        <label className="block text-sm font-medium text-gray-700">
+                                                            {position} Team ({pointDistributions.team[event.tier][index]} pts each)
+                                                        </label>
+                                                        <div className="space-y-2">
+                                                            {[0, 1].map(playerIndex => (
+                                                                <select
+                                                                    key={playerIndex}
+                                                                    value={event.results[index]?.team[playerIndex] || ''}
+                                                                    onChange={(e) => {
+                                                                        const newTeam = [...(event.results[index]?.team || [])];
+                                                                        newTeam[playerIndex] = e.target.value || null;
+                                                                        updateEventResult(event.id, index, newTeam.filter(p => p !== null));
+                                                                    }}
+                                                                    className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 text-sm"
+                                                                >
+                                                                    <option value="">Select Player {playerIndex + 1}</option>
+                                                                    {players.map(player => (
+                                                                        <option key={player} value={player}>{player}</option>
+                                                                    ))}
+                                                                </select>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<TournamentTracker />, document.getElementById('root'));
+    </script>
+</body>
+</html>
